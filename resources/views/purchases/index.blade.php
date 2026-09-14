@@ -84,13 +84,30 @@
             <p class="text-xs text-gray-500 mt-1">Aktor: Petugas Operasional</p>
         </div>
 
-        <form action="/purchases" method="POST" class="space-y-4">
+        <!-- Error / Validation Alert -->
+        @if($errors->any())
+            <div class="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs space-y-1">
+                <div class="font-bold flex items-center gap-1.5 text-red-700">
+                    <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                    </svg>
+                    <span>Peringatan Input Data:</span>
+                </div>
+                <ul class="list-disc list-inside pl-1 text-red-600 space-y-0.5">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        <form action="/purchases" method="POST" id="purchase_form" class="space-y-4">
             @csrf
             
             <!-- Tanggal Pengajuan -->
             <div>
                 <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Tanggal Pengajuan</label>
-                <input type="date" name="submission_date" value="{{ date('Y-m-d') }}" required
+                <input type="date" name="submission_date" value="{{ old('submission_date', date('Y-m-d')) }}" required
                     class="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2 text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
             </div>
 
@@ -99,8 +116,8 @@
                 <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Sumber Pengadaan</label>
                 <select name="procurement_source" id="procurement_source" required onchange="toggleCostInput()"
                     class="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2 text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
-                    <option value="Mandiri">Pembelian Mandiri (Modal Sendiri)</option>
-                    <option value="Subsidi">Bantuan / Subsidi Pemerintah (Gratis)</option>
+                    <option value="Mandiri" {{ old('procurement_source') == 'Mandiri' ? 'selected' : '' }}>Pembelian Mandiri (Modal Sendiri)</option>
+                    <option value="Subsidi" {{ old('procurement_source') == 'Subsidi' ? 'selected' : '' }}>Bantuan / Subsidi Pemerintah (Gratis)</option>
                 </select>
             </div>
 
@@ -110,7 +127,7 @@
                 <select name="product_id" required
                     class="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2 text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
                     @foreach($products as $prod)
-                        <option value="{{ $prod->id }}">{{ $prod->name }}</option>
+                        <option value="{{ $prod->id }}" {{ old('product_id') == $prod->id ? 'selected' : '' }}>{{ $prod->name }} ({{ $prod->category }})</option>
                     @endforeach
                 </select>
             </div>
@@ -118,15 +135,17 @@
             <!-- Jumlah Kebutuhan -->
             <div>
                 <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Jumlah Kebutuhan</label>
-                <input type="number" name="quantity" required placeholder="Contoh: 10"
+                <input type="number" name="quantity" id="purchase_quantity" min="1" step="any" required placeholder="Contoh: 10" value="{{ old('quantity') }}"
                     class="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2 text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                <p id="qty_warning" class="text-[11px] text-red-600 mt-1 hidden">⚠️ Jumlah kebutuhan harus lebih dari 0 (tidak boleh 0 atau minus).</p>
             </div>
 
             <!-- Estimasi Biaya Total -->
             <div id="cost_container">
                 <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Estimasi Biaya Total (Rp)</label>
-                <input type="number" name="total_cost" id="total_cost" required placeholder="Contoh: 150000"
+                <input type="number" name="total_cost" id="total_cost" min="1" step="any" required placeholder="Contoh: 150000" value="{{ old('total_cost') }}"
                     class="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2 text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                <p id="cost_warning" class="text-[11px] text-red-600 mt-1 hidden">⚠️ Estimasi biaya harus lebih dari 0 (tidak boleh 0 atau minus).</p>
             </div>
 
             <!-- Submit Button -->
@@ -171,13 +190,22 @@
                             </div>
                             <div>
                                 <span class="font-medium text-gray-400">Total Biaya:</span> 
-                                <span class="font-semibold text-gray-700">Rp{{ number_format($p->total_cost, 0, ',', '.') }}</span>
+                                @if($p->is_realized)
+                                    <span class="font-semibold text-emerald-700">Rp{{ number_format($p->total_cost, 0, ',', '.') }}</span>
+                                    <span class="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 font-medium ml-1">Realisasi</span>
+                                @elseif($p->receipt_proof)
+                                    <span class="font-semibold text-gray-800">Rp{{ number_format($p->total_cost, 0, ',', '.') }}</span>
+                                    <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 font-medium ml-1">Nota Terbaru</span>
+                                @else
+                                    <span class="font-semibold text-gray-700">Rp{{ number_format($p->total_cost, 0, ',', '.') }}</span>
+                                    <span class="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-medium ml-1">Estimasi Form</span>
+                                @endif
                             </div>
                             @if($p->receipt_proof)
-                                <div class="col-span-2 flex flex-col space-y-1.5 mt-1">
+                                <div class="col-span-2 flex flex-col space-y-1.5 mt-2 pt-2 border-t border-gray-100">
                                     <div class="flex items-center space-x-2">
-                                        <span class="text-[11px] font-medium text-gray-500">Bukti Nota:</span>
-                                        <button type="button" onclick="openReceiptModal('{{ asset('storage/' . $p->receipt_proof) }}')"
+                                        <span class="text-[11px] font-medium text-gray-600">Foto Nota Pembelian:</span>
+                                        <button type="button" onclick="openReceiptModal('{{ url('/purchases/' . $p->id . '/receipt') }}')"
                                             class="inline-flex items-center space-x-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded transition">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
@@ -185,11 +213,12 @@
                                             <span>Lihat Gambar Nota</span>
                                         </button>
                                     </div>
-                                    <div class="mt-1">
-                                        <img src="{{ asset('storage/' . $p->receipt_proof) }}" 
+                                    <div class="mt-1 flex items-center space-x-3">
+                                        <img src="{{ url('/purchases/' . $p->id . '/receipt') }}" 
                                             alt="Nota Pengadaan" 
-                                            onclick="openReceiptModal('{{ asset('storage/' . $p->receipt_proof) }}')"
-                                            class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition shadow-sm">
+                                            onclick="openReceiptModal('{{ url('/purchases/' . $p->id . '/receipt') }}')"
+                                            class="w-20 h-20 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition shadow-sm hover:ring-2 hover:ring-emerald-500">
+                                        <span class="text-[10px] text-gray-400 italic">Klik gambar untuk memperbesar</span>
                                     </div>
                                 </div>
                             @endif
@@ -261,16 +290,33 @@
 
                         @if($p->validation_status == 'Approved' && $p->receipt_proof && !$p->is_realized)
                             @if(auth('internal')->user()->role === 'Owner')
-                                <form action="/purchases/{{ $p->id }}/realize" method="POST" class="flex flex-col items-end">
-                                    @csrf @method('PATCH')
-                                    <button type="submit" 
-                                        class="text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded px-3.5 py-1.5 shadow-sm transition flex items-center space-x-1">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                        </svg>
-                                        <span>Konfirmasi Barang Masuk</span>
-                                    </button>
-                                </form>
+                                <div class="flex flex-col items-end space-y-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                    <div class="text-right">
+                                        <label class="text-[11px] font-semibold text-slate-800 block">Harga Sebenarnya (Nota):</label>
+                                        <p class="text-[10px] text-slate-500">Sesuaikan total biaya dari nota sebelum konfirmasi</p>
+                                    </div>
+                                    <form action="/purchases/{{ $p->id }}/realize" method="POST" class="flex flex-col items-end space-y-2">
+                                        @csrf @method('PATCH')
+                                        <div class="flex items-center space-x-1">
+                                            <span class="text-xs font-bold text-gray-600">Rp</span>
+                                            <input type="number" name="actual_cost" value="{{ (int)$p->total_cost }}" min="0" step="1" required
+                                                class="w-36 text-xs bg-white border border-gray-300 rounded px-2.5 py-1 text-gray-900 font-semibold focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500">
+                                        </div>
+                                        <div class="flex items-center space-x-2">
+                                            <button type="submit" formaction="/purchases/{{ $p->id }}/update-cost"
+                                                class="text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-lg transition shadow-2xs">
+                                                Update Biaya
+                                            </button>
+                                            <button type="submit" 
+                                                class="text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3.5 py-1.5 shadow-sm transition flex items-center space-x-1">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                                </svg>
+                                                <span>Konfirmasi Barang Masuk</span>
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
                             @else
                                 <span class="text-[11px] italic text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">
                                     Menunggu Konfirmasi Pemilik
@@ -314,11 +360,14 @@
         const source = document.getElementById('procurement_source').value;
         const costContainer = document.getElementById('cost_container');
         const costInput = document.getElementById('total_cost');
+        const costWarning = document.getElementById('cost_warning');
 
         if (source === 'Subsidi') {
             costContainer.style.display = 'none';
             costInput.removeAttribute('required');
             costInput.value = '';
+            if (costWarning) costWarning.classList.add('hidden');
+            costInput.classList.remove('border-red-500', 'bg-red-50');
         } else {
             costContainer.style.display = 'block';
             costInput.setAttribute('required', 'true');
@@ -335,7 +384,71 @@
         document.getElementById('receiptModalImg').src = '';
     }
 
-    // Initialize correct state
-    document.addEventListener('DOMContentLoaded', toggleCostInput);
+    // Client-side validation: cegah nilai 0 dan minus
+    document.addEventListener('DOMContentLoaded', function() {
+        toggleCostInput();
+
+        const form = document.getElementById('purchase_form');
+        const qtyInput = document.getElementById('purchase_quantity');
+        const qtyWarning = document.getElementById('qty_warning');
+        const costInput = document.getElementById('total_cost');
+        const costWarning = document.getElementById('cost_warning');
+        const sourceSelect = document.getElementById('procurement_source');
+
+        function validateQuantity() {
+            const val = parseFloat(qtyInput.value);
+            if (isNaN(val) || val <= 0) {
+                qtyWarning.classList.remove('hidden');
+                qtyInput.classList.add('border-red-500', 'bg-red-50');
+                return false;
+            } else {
+                qtyWarning.classList.add('hidden');
+                qtyInput.classList.remove('border-red-500', 'bg-red-50');
+                return true;
+            }
+        }
+
+        function validateCost() {
+            if (sourceSelect.value === 'Subsidi') {
+                costWarning.classList.add('hidden');
+                costInput.classList.remove('border-red-500', 'bg-red-50');
+                return true;
+            }
+            const val = parseFloat(costInput.value);
+            if (isNaN(val) || val <= 0) {
+                costWarning.classList.remove('hidden');
+                costInput.classList.add('border-red-500', 'bg-red-50');
+                return false;
+            } else {
+                costWarning.classList.add('hidden');
+                costInput.classList.remove('border-red-500', 'bg-red-50');
+                return true;
+            }
+        }
+
+        if (qtyInput) {
+            qtyInput.addEventListener('input', validateQuantity);
+        }
+
+        if (costInput) {
+            costInput.addEventListener('input', validateCost);
+        }
+
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const isQtyValid = validateQuantity();
+                const isCostValid = validateCost();
+
+                if (!isQtyValid || !isCostValid) {
+                    e.preventDefault();
+                    if (!isQtyValid) {
+                        qtyInput.focus();
+                    } else if (!isCostValid) {
+                        costInput.focus();
+                    }
+                }
+            });
+        }
+    });
 </script>
 @endsection

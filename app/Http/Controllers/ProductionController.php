@@ -28,15 +28,19 @@ class ProductionController extends Controller
     public function storeSeedUsage(Request $request)
     {
         $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'usage_date' => 'required|date',
-            'quantity_used' => 'required|numeric|min:1'
+            'product_id'    => 'required|exists:products,id',
+            'usage_date'    => 'required|date',
+            'quantity_used' => 'required|numeric|gt:0',
+        ], [
+            'quantity_used.required' => 'Jumlah bibit wajib diisi.',
+            'quantity_used.numeric'  => 'Jumlah bibit harus berupa angka.',
+            'quantity_used.gt'       => 'Jumlah bibit yang ditanam harus lebih dari 0 (tidak boleh bernilai 0 atau angka minus).',
         ]);
 
         $product = Product::find($request->product_id);
 
         if ($product->stock_available < $request->quantity_used) {
-            return redirect()->back()->with('error', 'Gagal, jumlah melebihi ketersediaan stok');
+            return redirect()->back()->with('error', 'Gagal, jumlah melebihi ketersediaan stok bibit (Tersedia: ' . $product->stock_available . ' ' . $product->unit . ').');
         }
 
         DB::transaction(function () use ($request, $product) {
@@ -83,15 +87,20 @@ class ProductionController extends Controller
     {
         $request->validate([
             'production_schedule_id' => 'required|exists:production_schedules,id',
-            'product_id' => 'required|exists:products,id',
-            'usage_date' => 'required|date',
-            'quantity_used' => 'required|numeric|min:1'
+            'product_id'             => 'required|exists:products,id',
+            'usage_date'             => 'required|date',
+            'quantity_used'          => 'required|numeric|gt:0',
+        ], [
+            'production_schedule_id.required' => 'Batch tanam wajib dipilih.',
+            'quantity_used.required'          => 'Jumlah pupuk wajib diisi.',
+            'quantity_used.numeric'           => 'Jumlah pupuk harus berupa angka.',
+            'quantity_used.gt'                => 'Jumlah pupuk yang digunakan harus lebih dari 0 (tidak boleh bernilai 0 atau angka minus).',
         ]);
 
         $product = Product::find($request->product_id);
 
         if ($product->stock_available < $request->quantity_used) {
-            return redirect()->back()->with('error', 'Gagal, jumlah melebihi ketersediaan stok');
+            return redirect()->back()->with('error', 'Gagal, jumlah melebihi ketersediaan stok pupuk (Tersedia: ' . $product->stock_available . ' ' . $product->unit . ').');
         }
 
         DB::transaction(function () use ($request, $product) {
@@ -129,9 +138,13 @@ class ProductionController extends Controller
     public function storeHarvest(Request $request, ProductionSchedule $schedule)
     {
         $request->validate([
-            'product_id' => 'required|exists:products,id',
+            'product_id'          => 'required|exists:products,id',
             'actual_harvest_date' => 'required|date',
-            'total_harvest' => 'required|numeric|min:1'
+            'total_harvest'       => 'required|numeric|gt:0',
+        ], [
+            'total_harvest.required' => 'Berat riil hasil panen wajib diisi.',
+            'total_harvest.numeric'  => 'Berat riil harus berupa angka.',
+            'total_harvest.gt'       => 'Berat riil hasil panen harus lebih dari 0 (tidak boleh bernilai 0 atau angka minus).',
         ]);
 
         DB::transaction(function () use ($request, $schedule) {

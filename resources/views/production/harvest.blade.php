@@ -27,6 +27,23 @@
         </div>
     </div>
 
+    <!-- Validation Error Alert -->
+    @if($errors->any())
+        <div class="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs space-y-1">
+            <div class="font-bold flex items-center gap-1.5 text-red-700">
+                <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                </svg>
+                <span>Peringatan Input Data:</span>
+            </div>
+            <ul class="list-disc list-inside pl-1 text-red-600 space-y-0.5">
+                @foreach($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     <div class="flex items-center justify-between">
         <div>
             <h3 class="text-sm font-semibold text-gray-900">Daftar Batch Tanam Aktif</h3>
@@ -87,7 +104,7 @@
 
                     <!-- Right: Realization Form -->
                     <div class="p-6">
-                        <form action="/production/harvest/{{ $sch->id }}" method="POST" class="space-y-3.5">
+                        <form action="/production/harvest/{{ $sch->id }}" method="POST" class="harvest-form space-y-3.5">
                             @csrf
                             @method('PATCH')
                             
@@ -111,8 +128,9 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Berat Riil (Kg)</label>
-                                    <input type="number" name="total_harvest" placeholder="Misal: 550" min="1" required
-                                        class="w-full text-xs bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5 text-gray-800 focus:outline-none focus:border-emerald-500 transition">
+                                    <input type="number" name="total_harvest" placeholder="Misal: 550" min="1" step="any" required
+                                        class="harvest-input w-full text-xs bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5 text-gray-800 focus:outline-none focus:border-emerald-500 transition">
+                                    <p class="harvest-warning text-[10px] text-red-600 mt-1 hidden">⚠️ Berat riil harus > 0.</p>
                                 </div>
                             </div>
 
@@ -129,4 +147,41 @@
         </div>
     @endif
 </div>
+@endsection
+
+@section('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const harvestForms = document.querySelectorAll('.harvest-form');
+        
+        harvestForms.forEach(form => {
+            const input = form.querySelector('.harvest-input');
+            const warning = form.querySelector('.harvest-warning');
+
+            function validateHarvest() {
+                const val = parseFloat(input.value);
+                if (isNaN(val) || val <= 0) {
+                    warning.classList.remove('hidden');
+                    input.classList.add('border-red-500', 'bg-red-50');
+                    return false;
+                } else {
+                    warning.classList.add('hidden');
+                    input.classList.remove('border-red-500', 'bg-red-50');
+                    return true;
+                }
+            }
+
+            if (input) {
+                input.addEventListener('input', validateHarvest);
+            }
+
+            form.addEventListener('submit', function(e) {
+                if (!validateHarvest()) {
+                    e.preventDefault();
+                    input.focus();
+                }
+            });
+        });
+    });
+</script>
 @endsection

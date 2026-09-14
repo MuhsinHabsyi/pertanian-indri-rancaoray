@@ -155,4 +155,44 @@ class PurchaseValidationTest extends TestCase
         $this->assertTrue($this->purchase->fresh()->is_realized);
         $this->assertEquals($initialStock + 10, $this->product->fresh()->stock_available);
     }
+
+    public function test_owner_can_update_actual_cost_before_realization()
+    {
+        $this->purchase->update([
+            'validation_status' => 'Approved',
+            'receipt_proof' => 'receipts/fake_nota.png'
+        ]);
+
+        $response = $this->actingAs($this->owner, 'internal')
+            ->patch("/purchases/{$this->purchase->id}/update-cost", [
+                'total_cost' => 125000
+            ]);
+
+        $response->assertRedirect('/purchases');
+        $freshPurchase = $this->purchase->fresh();
+        $this->assertEquals(125000, $freshPurchase->total_cost);
+        $this->assertEquals(12500, $freshPurchase->items->first()->unit_price);
+        $this->assertEquals(125000, $freshPurchase->items->first()->subtotal);
+    }
+
+    public function test_owner_can_update_cost_and_realize_in_one_step()
+    {
+        $initialStock = $this->product->stock_available;
+
+        $this->purchase->update([
+            'validation_status' => 'Approved',
+            'receipt_proof' => 'receipts/fake_nota.png'
+        ]);
+
+        $response = $this->actingAs($this->owner, 'internal')
+            ->patch("/purchases/{$this->purchase->id}/realize", [
+                'actual_cost' => 150000
+            ]);
+
+        $response->assertRedirect('/purchases');
+        $freshPurchase = $this->purchase->fresh();
+        $this->assertTrue($freshPurchase->is_realized);
+        $this->assertEquals(150000, $freshPurchase->total_cost);
+        $this->assertEquals($initialStock + 10, $this->product->fresh()->stock_available);
+    }
 }

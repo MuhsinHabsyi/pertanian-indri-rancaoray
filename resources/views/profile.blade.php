@@ -166,7 +166,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Nomor Telepon</label>
-                            <input type="tel" name="phone" value="081234567890" required
+                            <input type="tel" name="phone" value="6281234567890" required pattern="^(62|\+62)[0-9]{8,13}$"
                                 class="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2.5 text-gray-800 focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition">
                         </div>
                     </div>

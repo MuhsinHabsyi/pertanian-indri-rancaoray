@@ -62,6 +62,8 @@ Route::middleware(['auth:internal'])->group(function () {
     Route::post('/purchases', [PurchaseController::class, 'store']); // Aksi Mengajukan
     Route::patch('/purchases/{purchase}/validate', [PurchaseController::class, 'validatePurchase']); // Aksi Validasi
     Route::post('/purchases/{purchase}/upload-receipt', [PurchaseController::class, 'uploadReceipt']); // Unggah Nota Gambar
+    Route::get('/purchases/{purchase}/receipt', [PurchaseController::class, 'showReceipt']); // Tampilkan Gambar Nota langsung via Controller
+    Route::patch('/purchases/{purchase}/update-cost', [PurchaseController::class, 'updateCost']); // Pemilik Update Biaya Realisasi Nota
     Route::patch('/purchases/{purchase}/realize', [PurchaseController::class, 'realize']); // Aksi Realisasi (Konfirmasi Barang Masuk oleh Pemilik)
 
     // Modul Penggunaan Stok Sarana (Halaman 1)
@@ -76,13 +78,16 @@ Route::middleware(['auth:internal'])->group(function () {
     // Penjualan Hasil Panen (Internal Actions)
     Route::get('/internal/orders', [OrderController::class, 'indexInternal']);
     Route::post('/internal/orders', [OrderController::class, 'store']);
+    Route::get('/internal/orders/{order}', [OrderController::class, 'show']);
+    Route::get('/internal/orders/{order}/nota', [OrderController::class, 'nota']);
     Route::patch('/internal/orders/{order}/confirm', [OrderController::class, 'confirm']);
     Route::patch('/internal/orders/{order}/complete', [OrderController::class, 'complete']);
+    Route::patch('/internal/orders/{order}/courier-phone', [OrderController::class, 'updateCourierPhone']);
 
     // Laporan Operasional
     Route::get('/reports', [ReportController::class, 'index']);
     Route::post('/reports/generate', [ReportController::class, 'generate']);
-    Route::post('/reports/download', [ReportController::class, 'download']);
+    Route::match(['get', 'post'], '/reports/download', [ReportController::class, 'download']);
 
     // Pemantauan Informasi Cuaca
     Route::get('/weather', [WeatherController::class, 'index']);
@@ -125,3 +130,12 @@ Route::any('/logout', [AuthController::class, 'logout']);
 
 // Profil Akun & Pelanggan
 Route::get('/profile', [AuthController::class, 'profile']);
+
+// Storage fallback route for uploaded files
+Route::get('/storage/{path}', function ($path) {
+    $filePath = storage_path('app/public/' . $path);
+    if (!file_exists($filePath)) {
+        abort(404);
+    }
+    return response()->file($filePath);
+})->where('path', '.*');

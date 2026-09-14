@@ -34,7 +34,7 @@ class UserController extends Controller
         }
 
         $validated = $request->validate([
-            'full_name' => 'required|string|max:255',
+            'full_name' => 'required|string|max:255|regex:/^[a-zA-Z\s\.\'\-]+$/',
             'username' => 'required|string|max:255|unique:users,username',
             'role' => 'required|in:Owner,Operational',
             'password' => 'required|string|min:6|confirmed',

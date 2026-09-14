@@ -39,8 +39,20 @@ class OrderController extends Controller
     public function indexInternal()
     {
         $products = Product::where('category', 'Rice')->get();
-        $orders = Order::with('items.product')->latest()->get();
+        $orders = Order::with(['items.product', 'customer', 'operational'])->latest()->get();
         return view('orders.internal_index', compact('products', 'orders'));
+    }
+
+    public function show(Order $order)
+    {
+        $order->load(['items.product', 'customer', 'operational']);
+        return view('orders.show', compact('order'));
+    }
+
+    public function nota(Order $order)
+    {
+        $order->load(['items.product', 'customer', 'operational']);
+        return view('orders.nota', compact('order'));
     }
 
     // SKENARIO LANGKAH 1-2: Offline Checkout Form (Internal Staff)
@@ -64,14 +76,15 @@ class OrderController extends Controller
         $total_payment = $subtotal + $shippingCost;
 
         $order = Order::create([
-            'customer_id' => 3,
-            'transaction_date' => now(),
-            'shipping_address' => $request->shipping_address,
-            'shipping_cost' => $shippingCost,
-            'total_payment' => $total_payment,
-            'payment_method' => 'Midtrans',
-            'order_status' => 'Pending',
-            'sale_channel' => 'Offline'
+            'customer_id'        => 3,
+            'transaction_date'   => now(),
+            'shipping_address'   => $request->shipping_address,
+            'shipping_cost'      => $shippingCost,
+            'total_payment'      => $total_payment,
+            'payment_method'     => 'Midtrans',
+            'order_status'       => 'Pending',
+            'sale_channel'       => 'Offline',
+            'payment_expires_at' => now()->addHour(), // Hangus dalam 1 jam
         ]);
 
         $order->items()->create([
@@ -89,14 +102,18 @@ class OrderController extends Controller
 
         $params = [
             'transaction_details' => [
-                'order_id' => $order->id . '-' . time(),
+                'order_id'     => $order->id . '-' . time(),
                 'gross_amount' => $total_payment,
             ],
             'customer_details' => [
-                'first_name' => 'Pelanggan',
+                'first_name'       => 'Pelanggan',
                 'shipping_address' => [
                     'address' => $request->shipping_address,
                 ]
+            ],
+            'expiry' => [
+                'unit'     => 'hour',
+                'duration' => 1,
             ],
         ];
 
@@ -158,11 +175,34 @@ class OrderController extends Controller
         return redirect('/internal/orders')->with('success', 'Pesanan berhasil dikonfirmasi. Status: Diproses.');
     }
 
-    // SKENARIO FINAL: Selesaikan Transaksi
+    // SKENARIO FINAL: Selesaikan Transaksi & Cetak Nota
     public function complete(Order $order)
     {
-        $order->update(['order_status' => 'Completed']);
-        return redirect('/internal/orders')->with('success', 'Nota berhasil dicetak (Simulasi) dan Transaksi telah Selesai.');
+        // Generate nomor nota: NOTA-{YYYYMMDD}-{ID}
+        $notaNumber = 'NOTA-' . now()->format('Ymd') . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
+        $order->update([
+            'order_status' => 'Completed',
+            'nota_number'  => $notaNumber,
+        ]);
+        // Redirect ke halaman nota cetak
+        return redirect('/internal/orders/' . $order->id . '/nota');
+    }
+
+    // Input Nomor Telepon Kurir JNT secara Mandiri (Owner / Internal)
+    public function updateCourierPhone(Request $request, Order $order)
+    {
+        $request->validate([
+            'courier_phone' => ['required', 'regex:/^(62|\+62)[0-9]{8,13}$/'],
+        ], [
+            'courier_phone.required' => 'Nomor telepon kurir JNT wajib diisi.',
+            'courier_phone.regex'    => 'Nomor telepon kurir harus diawali dengan 62 (contoh: 628123456789), tidak boleh menggunakan 08.',
+        ]);
+
+        $order->update([
+            'courier_phone' => $request->courier_phone,
+        ]);
+
+        return redirect()->back()->with('success', 'Nomor telepon kurir JNT berhasil diperbarui.');
     }
 
     // ==================== FITUR E-COMMERCE CART ====================
@@ -233,13 +273,31 @@ class OrderController extends Controller
             return redirect()->back()->with('error', 'Keranjang belanja Anda kosong.');
         }
 
+        // ── Validasi form checkout ──────────────────────────────────────────
+        // Catatan: regex nama & telepon sinkron dengan pattern HTML di cart.blade.php
         $request->validate([
-            'shipping_address' => 'required|string|min:10',
+            'recipient_name'       => ['required', 'regex:/^[a-zA-Z\s\.\'\-]+$/'],
+            'recipient_phone'      => ['required', 'regex:/^(62|\+62)[0-9]{8,13}$/'],
+            'recipient_lat'        => 'required|numeric|between:-90,90',
+            'recipient_lng'        => 'required|numeric|between:-180,180',
+            'delivery_courier'     => 'required|in:Rancaoray,JNT',
+            'delivery_distance_km' => 'required|numeric|min:0',
+            'shipping_address'     => 'required|string|min:10',
+        ], [
+            'recipient_name.required'  => 'Nama penerima wajib diisi.',
+            'recipient_name.regex'     => 'Nama penerima hanya boleh berisi huruf, spasi, titik, apostrof, dan tanda hubung.',
+            'recipient_phone.required' => 'Nomor telepon penerima wajib diisi.',
+            'recipient_phone.regex'    => 'Nomor telepon harus diawali dengan 62 (contoh: 628123456789), tidak boleh menggunakan 08.',
+            'recipient_lat.required'   => 'Lokasi pada peta belum dipilih. Klik pada peta untuk menentukan lokasi.',
+            'recipient_lng.required'   => 'Lokasi pada peta belum dipilih. Klik pada peta untuk menentukan lokasi.',
+            'delivery_courier.required'=> 'Kurir pengiriman belum terdeteksi. Pastikan lokasi peta sudah dipilih.',
+            'shipping_address.required'=> 'Alamat lengkap wajib diisi.',
+            'shipping_address.min'     => 'Alamat terlalu singkat (minimal 10 karakter).',
         ]);
 
+        // ── Validasi stok keranjang ─────────────────────────────────────────
         $subtotal = 0;
         foreach ($cart as $item) {
-            // Validate stock against the package
             $package = ProductPackage::find($item['package_id'] ?? 0);
             if (!$package || $package->online_stock < $item['quantity']) {
                 return redirect()->back()->with('error', "Stok '{$item['name']}' tidak mencukupi.");
@@ -247,30 +305,44 @@ class OrderController extends Controller
             $subtotal += $item['price'] * $item['quantity'];
         }
 
-        $shippingCost = 15000;
+        // ── Logika ongkos kirim ─────────────────────────────────────────────
+        // <= 5 km (Rancaoray): Rp 15.000 (diantar langsung oleh armada Pertanian Rancaoray)
+        // > 5 km (JNT): Rp 0 (biaya pengiriman JNT dibayarkan langsung oleh penerima saat paket tiba / COD)
+        $shippingCost = ($request->delivery_courier === 'Rancaoray') ? 15000 : 0;
         $total_payment = $subtotal + $shippingCost;
 
+        // ── Buat Order ──────────────────────────────────────────────────────
         $order = Order::create([
-            'customer_id' => auth('web')->id() ?? auth()->id() ?? 3,
-            'transaction_date' => now(),
-            'shipping_address' => $request->shipping_address,
-            'shipping_cost' => $shippingCost,
-            'total_payment' => $total_payment,
-            'payment_method' => 'Midtrans',
-            'order_status' => 'Pending',
-            'sale_channel' => 'Online'
+            'customer_id'          => auth('web')->id() ?? auth()->id() ?? 3,
+            'transaction_date'     => now(),
+            'shipping_address'     => $request->shipping_address,
+            // Informasi penerima (dikumpulkan dari form + peta Leaflet)
+            'recipient_name'       => $request->recipient_name,
+            'recipient_phone'      => $request->recipient_phone,
+            'recipient_lat'        => $request->recipient_lat,
+            'recipient_lng'        => $request->recipient_lng,
+            // Kurir ditentukan oleh jarak Haversine (dihitung di sisi klien & diverifikasi oleh form)
+            // ≤ 5 km → 'Rancaoray', > 5 km → 'JNT'
+            'delivery_courier'     => $request->delivery_courier,
+            'delivery_distance_km' => $request->delivery_distance_km,
+            'shipping_cost'        => $shippingCost,
+            'total_payment'        => $total_payment,
+            'payment_method'       => 'Midtrans',
+            'order_status'         => 'Pending',
+            'sale_channel'         => 'Online',
+            'payment_expires_at'   => now()->addHour(),
         ]);
 
         foreach ($cart as $item) {
             $order->items()->create([
                 'product_id' => $item['product_id'],
-                'quantity' => $item['package_size'] * $item['quantity'], // Store total Kg
-                'unit_price' => $item['price'] / $item['package_size'], // Per-Kg price
-                'subtotal' => $item['price'] * $item['quantity']
+                'quantity'   => $item['package_size'] * $item['quantity'], // Total Kg
+                'unit_price' => $item['price'] / $item['package_size'],    // Per-Kg price
+                'subtotal'   => $item['price'] * $item['quantity']
             ]);
         }
 
-        // Konfigurasi Midtrans
+        // ── Midtrans Snap ───────────────────────────────────────────────────
         \Midtrans\Config::$serverKey = env('MIDTRANS_SERVER_KEY');
         \Midtrans\Config::$isProduction = false;
         \Midtrans\Config::$isSanitized = true;
@@ -278,14 +350,19 @@ class OrderController extends Controller
 
         $params = [
             'transaction_details' => [
-                'order_id' => $order->id . '-' . time(),
+                'order_id'     => $order->id . '-' . time(),
                 'gross_amount' => $total_payment,
             ],
             'customer_details' => [
-                'first_name' => auth('web')->check() ? auth('web')->user()->full_name : 'Pelanggan',
+                'first_name' => $request->recipient_name,
+                'phone'      => $request->recipient_phone,
                 'shipping_address' => [
                     'address' => $request->shipping_address,
                 ]
+            ],
+            'expiry' => [
+                'unit'     => 'hour',
+                'duration' => 1,
             ],
         ];
 
@@ -296,7 +373,7 @@ class OrderController extends Controller
 
         return redirect('/cart')->with([
             'snap_token' => $snapToken,
-            'order_id' => $order->id
+            'order_id'   => $order->id
         ]);
     }
 
